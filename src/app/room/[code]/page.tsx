@@ -1,11 +1,15 @@
+"use client";
+
 import DrawingRoom from "@/components/drawing-room";
+import { use } from "react";
 
 type RoomPageProps = {
-  params: {
+  params: Promise<{
     code: string;
-  };
+  }>;
 };
 
 export default function RoomPage({ params }: RoomPageProps) {
-  return <DrawingRoom roomCode={params.code} />;
+  const { code } = use(params);
+  return <DrawingRoom roomCode={code} />;
 }
