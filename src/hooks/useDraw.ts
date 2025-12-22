@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db } from "@/lib/firebase";
 import { ref, onValue, push, get, set } from "firebase/database";
 import type { DrawLine, RoomData } from "@/lib/types";
@@ -62,16 +62,20 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
 
     const redrawAll = (actions: DrawLine[]) => {
         if (!canvas) return;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.clearRect(0, 0, canvas.width, canvas.height);
         actions.forEach((line) => {
-          if (line) drawLine(ctx, line)
+          if (line) drawLine(context, line)
         });
     };
     
     const setCanvasSize = () => {
         const { width, height } = canvas.getBoundingClientRect();
-        canvas.width = width;
-        canvas.height = height;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        ctx.scale(dpr, dpr);
         
         get(dbRef).then((snapshot) => {
             if (snapshot.exists()) {
@@ -85,13 +89,17 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
     setCanvasSize();
 
     const unsubscribe = onValue(dbRef, (snapshot) => {
-        if (snapshot.exists()) {
-            const data: RoomData = snapshot.val();
-            const actions = data.actions ? Object.values(data.actions) : [];
-            redrawAll(actions);
+        const { width, height } = canvas.getBoundingClientRect();
+        if (canvas.width !== width || canvas.height !== height) {
+            setCanvasSize();
         } else {
-            // If room data is deleted (e.g., "Clear Canvas"), clear the canvas
-            redrawAll([]);
+             if (snapshot.exists()) {
+                const data: RoomData = snapshot.val();
+                const actions = data.actions ? Object.values(data.actions) : [];
+                redrawAll(actions);
+            } else {
+                redrawAll([]);
+            }
         }
     });
 
