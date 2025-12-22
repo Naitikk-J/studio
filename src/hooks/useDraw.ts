@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { db } from "@/lib/firebase";
-import { ref, onValue, push, get, set, serverTimestamp } from "firebase/database";
+import { ref, onValue, push, get, set } from "firebase/database";
 import type { DrawLine, RoomData } from "@/lib/types";
 import { useToast } from "./use-toast";
 
@@ -16,6 +16,7 @@ function drawLine(
   ctx: CanvasRenderingContext2D,
   line: Omit<DrawLine, "userId">
 ) {
+  if (!line.points || line.points.length === 0) return;
   ctx.strokeStyle = line.color;
   ctx.lineWidth = line.strokeWidth;
   ctx.lineCap = "round";
@@ -35,8 +36,18 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
   const userIdRef = useRef<string | null>(null);
   const { toast } = useToast();
 
+  const colorRef = useRef(color);
+  const strokeWidthRef = useRef(strokeWidth);
+
   useEffect(() => {
-    // Generate a unique user ID for this session
+    colorRef.current = color;
+  }, [color]);
+
+  useEffect(() => {
+    strokeWidthRef.current = strokeWidth;
+  }, [strokeWidth]);
+
+  useEffect(() => {
     if (!userIdRef.current) {
       userIdRef.current = Math.random().toString(36).substring(2, 9);
     }
@@ -47,7 +58,21 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     
-    // Set canvas dimensions
+    const dbRef = ref(db, `rooms/${roomCode}`);
+
+    const redrawAll = () => {
+        get(dbRef).then((snapshot) => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (snapshot.exists()) {
+                const data: RoomData = snapshot.val();
+                const actions = data.actions ? Object.values(data.actions) : [];
+                actions.forEach((line) => {
+                  if (line) drawLine(ctx, line)
+                });
+            }
+        });
+    };
+
     const setCanvasSize = () => {
         const { width, height } = canvas.getBoundingClientRect();
         canvas.width = width;
@@ -55,37 +80,20 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
         redrawAll();
     };
 
-    // Firebase listener
-    const dbRef = ref(db, `rooms/${roomCode}`);
-    const redrawAll = () => {
-        get(dbRef).then((snapshot) => {
-            if (snapshot.exists()) {
-                const data: RoomData = snapshot.val();
-                const actions = data.actions ? Object.values(data.actions) : [];
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                actions.forEach((line) => drawLine(ctx, line));
-            } else {
-                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-        });
-    };
-    
     const unsubscribe = onValue(dbRef, (snapshot) => {
-        if (!snapshot.exists()) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            return;
-        }
-        const data: RoomData = snapshot.val();
-        const actions = data.actions ? Object.values(data.actions) : [];
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        actions.forEach((line) => drawLine(ctx, line));
+        if (snapshot.exists()) {
+            const data: RoomData = snapshot.val();
+            const actions = data.actions ? Object.values(data.actions) : [];
+            actions.forEach((line) => {
+              if (line) drawLine(ctx, line)
+            });
+        }
     });
 
     setCanvasSize();
     window.addEventListener('resize', setCanvasSize);
 
-
-    // Mouse/Touch event handlers
     const getPoint = (e: MouseEvent | TouchEvent): { x: number; y: number } => {
         const rect = canvas.getBoundingClientRect();
         if (e instanceof MouseEvent) {
@@ -102,8 +110,8 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
       currentLineRef.current = {
         userId: userIdRef.current!,
         points: [point],
-        color,
-        strokeWidth,
+        color: colorRef.current,
+        strokeWidth: strokeWidthRef.current,
       };
     };
 
@@ -117,10 +125,12 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
 
     const onMouseUp = () => {
       if (!isDrawingRef.current || !currentLineRef.current) return;
-      isDrawingRef.current = false;
       
       const actionsRef = ref(db, `rooms/${roomCode}/actions`);
-      push(actionsRef, currentLineRef.current);
+      if (currentLineRef.current.points.length > 1) {
+        push(actionsRef, currentLineRef.current);
+      }
+      isDrawingRef.current = false;
       currentLineRef.current = null;
     };
 
@@ -131,7 +141,6 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
     canvas.addEventListener("touchmove", onMouseMove, { passive: false });
     window.addEventListener("touchend", onMouseUp);
 
-    // Cleanup
     return () => {
       window.removeEventListener('resize', setCanvasSize);
       unsubscribe();
@@ -142,7 +151,7 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
       canvas.removeEventListener("touchmove", onMouseMove);
       window.removeEventListener("touchend", onMouseUp);
     };
-  }, [roomCode, color, strokeWidth]);
+  }, [roomCode]);
 
   const handleClear = () => {
     const roomRef = ref(db, `rooms/${roomCode}`);
@@ -159,7 +168,7 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
     if (snapshot.exists()) {
       const actions: Record<string, DrawLine> = snapshot.val();
       const userActions = Object.entries(actions).filter(
-        ([, action]) => action.userId === userIdRef.current
+        ([, action]) => action && action.userId === userIdRef.current
       );
       if (userActions.length > 0) {
         const lastActionKey = userActions[userActions.length - 1][0];
