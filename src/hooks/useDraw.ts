@@ -60,38 +60,41 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
     
     const dbRef = ref(db, `rooms/${roomCode}`);
 
-    const redrawAll = () => {
-        get(dbRef).then((snapshot) => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            if (snapshot.exists()) {
-                const data: RoomData = snapshot.val();
-                const actions = data.actions ? Object.values(data.actions) : [];
-                actions.forEach((line) => {
-                  if (line) drawLine(ctx, line)
-                });
-            }
+    const redrawAll = (actions: DrawLine[]) => {
+        if (!canvas) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        actions.forEach((line) => {
+          if (line) drawLine(ctx, line)
         });
     };
-
+    
     const setCanvasSize = () => {
         const { width, height } = canvas.getBoundingClientRect();
         canvas.width = width;
         canvas.height = height;
-        redrawAll();
+        
+        get(dbRef).then((snapshot) => {
+            if (snapshot.exists()) {
+                const data: RoomData = snapshot.val();
+                const actions = data.actions ? Object.values(data.actions) : [];
+                redrawAll(actions);
+            }
+        });
     };
+    
+    setCanvasSize();
 
     const unsubscribe = onValue(dbRef, (snapshot) => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (snapshot.exists()) {
             const data: RoomData = snapshot.val();
             const actions = data.actions ? Object.values(data.actions) : [];
-            actions.forEach((line) => {
-              if (line) drawLine(ctx, line)
-            });
+            redrawAll(actions);
+        } else {
+            // If room data is deleted (e.g., "Clear Canvas"), clear the canvas
+            redrawAll([]);
         }
     });
 
-    setCanvasSize();
     window.addEventListener('resize', setCanvasSize);
 
     const getPoint = (e: MouseEvent | TouchEvent): { x: number; y: number } => {
@@ -120,7 +123,11 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
       e.preventDefault();
       const point = getPoint(e);
       currentLineRef.current.points.push(point);
-      drawLine(ctx, currentLineRef.current);
+      
+      const tempCtx = canvas.getContext('2d');
+      if (tempCtx) {
+        drawLine(tempCtx, currentLineRef.current);
+      }
     };
 
     const onMouseUp = () => {
