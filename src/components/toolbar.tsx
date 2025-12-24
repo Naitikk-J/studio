@@ -1,6 +1,6 @@
 "use client";
 
-import { Palette, Undo2, Trash2 } from "lucide-react";
+import { Palette, Undo2, Trash2, Eraser, Download } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -15,6 +15,9 @@ type ToolbarProps = {
   setStrokeWidth: (width: number) => void;
   onUndo: () => void;
   onClear: () => void;
+  onSync: () => void;
+  isEraser: boolean;
+  setIsEraser: (isEraser: boolean) => void;
 };
 
 const colors = [
@@ -66,6 +69,9 @@ export function Toolbar({
   setStrokeWidth,
   onUndo,
   onClear,
+  onSync,
+  isEraser,
+  setIsEraser,
 }: ToolbarProps) {
   return (
     <Card className="absolute bottom-4 left-1/2 -translate-x-1/2 shadow-lg">
@@ -87,7 +93,10 @@ export function Toolbar({
                 {colors.map((c) => (
                   <button
                     key={c}
-                    onClick={() => setColor(c)}
+                    onClick={() => {
+                      setColor(c);
+                      setIsEraser(false);
+                    }}
                     className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${
                       color === c ? "border-primary ring-2 ring-ring" : "border-gray-300"
                     }`}
@@ -101,7 +110,10 @@ export function Toolbar({
                 <input
                   type="color"
                   value={color}
-                  onChange={(e) => setColor(e.target.value)}
+                  onChange={(e) => {
+                    setColor(e.target.value);
+                    setIsEraser(false);
+                  }}
                   className="w-10 h-10 rounded-lg border-2 border-gray-300 cursor-pointer"
                 />
               </div>
@@ -118,7 +130,7 @@ export function Toolbar({
                 <div
                   className="rounded-full transition-transform"
                   style={{
-                    backgroundColor: color,
+                    backgroundColor: isEraser ? "white" : color,
                     width: `${Math.min(strokeWidth * 2, 24)}px`,
                     height: `${Math.min(strokeWidth * 2, 24)}px`
                   }}
@@ -129,7 +141,7 @@ export function Toolbar({
           </Tooltip>
           <Slider
             min={1}
-            max={30}
+            max={50}
             step={1}
             value={[strokeWidth]}
             onValueChange={(value) => setStrokeWidth(value[0])}
@@ -138,6 +150,15 @@ export function Toolbar({
         </div>
 
         <Separator orientation="vertical" className="h-8" />
+        
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant={isEraser ? "secondary" : "ghost"} size="icon" onClick={() => setIsEraser(!isEraser)}>
+              <Eraser />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Eraser</TooltipContent>
+        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -156,6 +177,16 @@ export function Toolbar({
           </TooltipTrigger>
           <TooltipContent>Clear Canvas</TooltipContent>
         </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={onSync}>
+              <Download />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Sync Canvas</TooltipContent>
+        </Tooltip>
+
       </CardContent>
     </Card>
   );

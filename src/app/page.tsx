@@ -37,7 +37,7 @@ export default function Home() {
           </div>
           <CardTitle className="font-headline text-4xl">AJDraw</CardTitle>
           <CardDescription className="text-lg">
-            Draw with anyone, anywhere.
+            Draw with AJ, anywhere.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
