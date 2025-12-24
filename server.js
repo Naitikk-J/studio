@@ -14,7 +14,6 @@ const port = parseInt(process.env.PORT || '9002', 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-// MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI;
 if (!MONGODB_URI) {
   console.error('✗ MONGODB_URI environment variable is not set');
@@ -25,26 +24,28 @@ const client = new MongoClient(MONGODB_URI);
 let db;
 let drawingsCollection;
 let roomsCollection;
+let dbConnected = false;
 
 async function connectToDb() {
   try {
     await client.connect();
-    db = client.db('drawing_app'); // Use a specific database name
+    db = client.db('drawing_app');
     drawingsCollection = db.collection('drawings');
     roomsCollection = db.collection('rooms');
     console.log('✓ Connected to MongoDB');
-    // Create index for faster queries
     await drawingsCollection.createIndex({ roomCode: 1 });
     console.log('✓ Database initialized successfully');
+    dbConnected = true;
     return true;
   } catch (error) {
     console.error('⚠️ Database connection error:', error.message);
+    dbConnected = false;
     return false;
   }
 }
 
 app.prepare().then(async () => {
-  const dbConnected = await connectToDb();
+  await connectToDb();
 
   if (dbConnected) {
     console.log('✓ Database ready for drawing sync');
@@ -65,8 +66,8 @@ app.prepare().then(async () => {
 
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: dev ? ['http://localhost:3000', 'http://localhost:9002'] : process.env.NEXT_PUBLIC_API_URL,
-      methods: ['GET', 'POST'],
+        origin: dev ? ['http://localhost:3000', 'http://localhost:9002'] : process.env.NEXT_PUBLIC_API_URL,
+        methods: ['GET', 'POST'],
     },
   });
 
@@ -96,17 +97,16 @@ app.prepare().then(async () => {
         console.error('Failed to load drawings:', error);
         socket.emit('error', 'Failed to load drawings');
       }
-        socket.to(roomCode).emit('user-joined', { userId: socket.id });
+
+      socket.to(roomCode).emit('user-joined', { userId: socket.id });
     });
 
     socket.on('draw', async (data) => {
         const { roomCode, line } = data;
         if (!dbConnected) return;
 
-        // Broadcast to other users
         socket.to(roomCode).emit('draw', { line, userId: socket.id });
 
-        // Save to database
         try {
             await roomsCollection.updateOne({ code: roomCode }, { $setOnInsert: { code: roomCode, createdAt: new Date() } }, { upsert: true });
 
