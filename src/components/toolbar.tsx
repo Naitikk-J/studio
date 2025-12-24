@@ -16,8 +16,7 @@ type ToolbarProps = {
   onUndo: () => void;
   onClear: () => void;
   onSync: () => void;
-  isEraser: boolean;
-  setIsEraser: (isEraser: boolean) => void;
+  onEraser: () => void;
 };
 
 const colors = [
@@ -70,8 +69,7 @@ export function Toolbar({
   onUndo,
   onClear,
   onSync,
-  isEraser,
-  setIsEraser,
+  onEraser,
 }: ToolbarProps) {
   return (
     <Card className="absolute bottom-4 left-1/2 -translate-x-1/2 shadow-lg">
@@ -93,10 +91,7 @@ export function Toolbar({
                 {colors.map((c) => (
                   <button
                     key={c}
-                    onClick={() => {
-                      setColor(c);
-                      setIsEraser(false);
-                    }}
+                    onClick={() => setColor(c)}
                     className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${
                       color === c ? "border-primary ring-2 ring-ring" : "border-gray-300"
                     }`}
@@ -110,10 +105,7 @@ export function Toolbar({
                 <input
                   type="color"
                   value={color}
-                  onChange={(e) => {
-                    setColor(e.target.value);
-                    setIsEraser(false);
-                  }}
+                  onChange={(e) => setColor(e.target.value)}
                   className="w-10 h-10 rounded-lg border-2 border-gray-300 cursor-pointer"
                 />
               </div>
@@ -130,7 +122,7 @@ export function Toolbar({
                 <div
                   className="rounded-full transition-transform"
                   style={{
-                    backgroundColor: isEraser ? "white" : color,
+                    backgroundColor: color,
                     width: `${Math.min(strokeWidth * 2, 24)}px`,
                     height: `${Math.min(strokeWidth * 2, 24)}px`
                   }}
@@ -153,7 +145,7 @@ export function Toolbar({
         
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant={isEraser ? "secondary" : "ghost"} size="icon" onClick={() => setIsEraser(!isEraser)}>
+            <Button variant="ghost" size="icon" onClick={onEraser}>
               <Eraser />
             </Button>
           </TooltipTrigger>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Home, Share2 } from "lucide-react";
+import { Home, Share2, Eraser } from "lucide-react";
 import { useDrawSocket } from "@/hooks/useDrawSocket";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/toolbar";
@@ -21,12 +21,10 @@ type DrawingRoomProps = {
 export default function DrawingRoom({ roomCode }: DrawingRoomProps) {
   const [color, setColor] = useState("#000000");
   const [strokeWidth, setStrokeWidth] = useState(5);
-  const [isEraser, setIsEraser] = useState(false);
   const { canvasRef, handleClear, handleUndo, handleSync } = useDrawSocket({
     roomCode,
     color,
     strokeWidth,
-    isEraser,
   });
   const { toast } = useToast();
 
@@ -36,6 +34,10 @@ export default function DrawingRoom({ roomCode }: DrawingRoomProps) {
       title: "Link Copied!",
       description: `Room code ${roomCode} is ready to be shared.`,
     });
+  };
+
+  const handleEraser = () => {
+    setColor("#FFFFFF");
   };
 
   return (
@@ -84,8 +86,7 @@ export default function DrawingRoom({ roomCode }: DrawingRoomProps) {
             onClear={handleClear}
             onUndo={handleUndo}
             onSync={handleSync}
-            isEraser={isEraser}
-            setIsEraser={setIsEraser}
+            onEraser={handleEraser}
           />
         </main>
       </div>
