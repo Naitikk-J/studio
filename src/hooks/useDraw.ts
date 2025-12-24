@@ -10,6 +10,7 @@ type UseDrawProps = {
   roomCode: string;
   color: string;
   strokeWidth: number;
+  isEraser: boolean;
 };
 
 function drawLine(
@@ -17,7 +18,7 @@ function drawLine(
   line: Omit<DrawLine, "userId">
 ) {
   if (!line.points || line.points.length === 0) return;
-  ctx.strokeStyle = line.color;
+  ctx.strokeStyle = line.isEraser ? "#FFFFFF" : line.color;
   ctx.lineWidth = line.strokeWidth;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -29,7 +30,7 @@ function drawLine(
   ctx.stroke();
 }
 
-export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
+export function useDraw({ roomCode, color, strokeWidth, isEraser }: UseDrawProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
   const currentLineRef = useRef<DrawLine | null>(null);
@@ -38,6 +39,7 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
 
   const colorRef = useRef(color);
   const strokeWidthRef = useRef(strokeWidth);
+  const isEraserRef = useRef(isEraser);
 
   useEffect(() => {
     colorRef.current = color;
@@ -46,6 +48,10 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
   useEffect(() => {
     strokeWidthRef.current = strokeWidth;
   }, [strokeWidth]);
+
+  useEffect(() => {
+    isEraserRef.current = isEraser;
+  }, [isEraser]);
 
   useEffect(() => {
     if (!userIdRef.current) {
@@ -123,6 +129,7 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
         points: [point],
         color: colorRef.current,
         strokeWidth: strokeWidthRef.current,
+        isEraser: isEraserRef.current,
       };
     };
 
@@ -199,5 +206,41 @@ export function useDraw({ roomCode, color, strokeWidth }: UseDrawProps) {
     }
   };
 
-  return { canvasRef, handleClear, handleUndo };
+  const handleSync = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dbRef = ref(db, `rooms/${roomCode}`);
+
+    const redrawAll = (actions: DrawLine[]) => {
+      if (!canvas) return;
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      actions.forEach((line) => {
+        if (line) drawLine(context, line);
+      });
+    };
+
+    get(dbRef).then((snapshot) => {
+      if (snapshot.exists()) {
+        const data: RoomData = snapshot.val();
+        const actions = data.actions ? Object.values(data.actions) : [];
+        redrawAll(actions);
+        toast({
+          title: "Canvas Synced",
+          description: "The canvas has been updated with the latest changes.",
+        });
+      } else {
+        redrawAll([]);
+        toast({
+          title: "Canvas Synced",
+          description: "The canvas is empty.",
+        });
+      }
+    });
+  };
+
+  return { canvasRef, handleClear, handleUndo, handleSync };
 }
