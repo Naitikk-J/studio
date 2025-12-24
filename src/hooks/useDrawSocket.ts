@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import type { DrawLine } from "@/lib/types";
 import { useToast } from "./use-toast";
@@ -9,7 +9,6 @@ type UseDrawSocketProps = {
   roomCode: string;
   color: string;
   strokeWidth: number;
-  isEraser: boolean;
 };
 
 function drawLine(
@@ -17,7 +16,7 @@ function drawLine(
   line: Omit<DrawLine, "userId">
 ) {
   if (!line.points || line.points.length === 0) return;
-  ctx.strokeStyle = line.isEraser ? "#FFFFFF" : line.color;
+  ctx.strokeStyle = line.color;
   ctx.lineWidth = line.strokeWidth;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -29,7 +28,7 @@ function drawLine(
   ctx.stroke();
 }
 
-export function useDrawSocket({ roomCode, color, strokeWidth, isEraser }: UseDrawSocketProps) {
+export function useDrawSocket({ roomCode, color, strokeWidth }: UseDrawSocketProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
   const currentLineRef = useRef<DrawLine | null>(null);
@@ -39,7 +38,6 @@ export function useDrawSocket({ roomCode, color, strokeWidth, isEraser }: UseDra
 
   const colorRef = useRef(color);
   const strokeWidthRef = useRef(strokeWidth);
-  const isEraserRef = useRef(isEraser);
 
   useEffect(() => {
     colorRef.current = color;
@@ -48,10 +46,6 @@ export function useDrawSocket({ roomCode, color, strokeWidth, isEraser }: UseDra
   useEffect(() => {
     strokeWidthRef.current = strokeWidth;
   }, [strokeWidth]);
-
-  useEffect(() => {
-    isEraserRef.current = isEraser;
-  }, [isEraser]);
 
   useEffect(() => {
     if (!userIdRef.current) {
@@ -89,6 +83,7 @@ export function useDrawSocket({ roomCode, color, strokeWidth, isEraser }: UseDra
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       ctx.scale(dpr, dpr);
+      socket.emit("join-room", roomCode);
     };
 
     setCanvasSize();
@@ -150,7 +145,6 @@ export function useDrawSocket({ roomCode, color, strokeWidth, isEraser }: UseDra
         points: [point],
         color: colorRef.current,
         strokeWidth: strokeWidthRef.current,
-        isEraser: isEraserRef.current,
       };
     };
 
@@ -206,10 +200,6 @@ export function useDrawSocket({ roomCode, color, strokeWidth, isEraser }: UseDra
     if (socketRef.current) {
       socketRef.current.emit("clear", roomCode);
     }
-    toast({
-      title: "Canvas Cleared!",
-      description: "The canvas is fresh and ready for new ideas.",
-    });
   };
 
   const handleUndo = () => {

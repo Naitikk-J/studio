@@ -1,105 +1,56 @@
+
 require('dotenv').config({ path: '.env.local' });
 
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const { Server: SocketIOServer } = require('socket.io');
-const { Pool } = require('pg');
+const { MongoClient } = require('mongodb');
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
 const port = parseInt(process.env.PORT || '9002', 10);
 
-// Initialize Next.js
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-// Initialize database pool
-console.log('Initializing database pool...');
-
-// Parse connection string
-let poolConfig = {
-  ssl: {
-    rejectUnauthorized: false,
-  },
-};
-
-if (process.env.DATABASE_URL) {
-  console.log('✓ DATABASE_URL is set');
-  poolConfig.connectionString = process.env.DATABASE_URL;
-} else {
-  console.error('✗ DATABASE_URL environment variable is not set');
+// MongoDB Connection
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  console.error('✗ MONGODB_URI environment variable is not set');
+  process.exit(1);
 }
 
-const pool = new Pool(poolConfig);
+const client = new MongoClient(MONGODB_URI);
+let db;
+let drawingsCollection;
+let roomsCollection;
 
-pool.on('error', (err) => {
-  console.error('Database pool error:', err.message);
-});
-
-const query = async (text, params) => {
+async function connectToDb() {
   try {
-    return await pool.query(text, params);
+    await client.connect();
+    db = client.db('drawing_app'); // Use a specific database name
+    drawingsCollection = db.collection('drawings');
+    roomsCollection = db.collection('rooms');
+    console.log('✓ Connected to MongoDB');
+    // Create index for faster queries
+    await drawingsCollection.createIndex({ roomCode: 1 });
+    console.log('✓ Database initialized successfully');
+    return true;
   } catch (error) {
-    console.error('Database query error:', error);
-    throw error;
-  }
-};
-
-// Initialize database schema
-const initializeDatabase = async () => {
-  try {
-    const client = await pool.connect();
-    try {
-      // Create rooms table
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS rooms (
-          id SERIAL PRIMARY KEY,
-          code VARCHAR(6) UNIQUE NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Create drawings table
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS drawings (
-          id SERIAL PRIMARY KEY,
-          room_code VARCHAR(6) NOT NULL,
-          user_id VARCHAR(255) NOT NULL,
-          color VARCHAR(7) NOT NULL,
-          stroke_width INT NOT NULL,
-          points JSONB NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (room_code) REFERENCES rooms(code) ON DELETE CASCADE
-        )
-      `);
-
-      // Create index for faster queries
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_drawings_room_code ON drawings(room_code)
-      `);
-
-      console.log('✓ Database initialized successfully');
-      return true;
-    } finally {
-      client.release();
-    }
-  } catch (error) {
-    console.error('⚠️  Database initialization error:', error.message);
+    console.error('⚠️ Database connection error:', error.message);
     return false;
   }
-};
+}
 
 app.prepare().then(async () => {
-  // Initialize database (non-blocking)
-  initializeDatabase().then((success) => {
-    if (success) {
-      console.log('✓ Database ready for drawing sync');
-    } else {
-      console.error('⚠️  Database not available. Please verify your DATABASE_URL.');
-    }
-  });
+  const dbConnected = await connectToDb();
+
+  if (dbConnected) {
+    console.log('✓ Database ready for drawing sync');
+  } else {
+    console.error('⚠️ Database not available. Please verify your MONGODB_URI.');
+  }
 
   const httpServer = createServer(async (req, res) => {
     try {
@@ -112,12 +63,9 @@ app.prepare().then(async () => {
     }
   });
 
-  // Initialize Socket.io
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.NODE_ENV === 'production'
-        ? process.env.NEXT_PUBLIC_API_URL
-        : ['http://localhost:3000', 'http://localhost:9002'],
+      origin: dev ? ['http://localhost:3000', 'http://localhost:9002'] : process.env.NEXT_PUBLIC_API_URL,
       methods: ['GET', 'POST'],
     },
   });
@@ -125,132 +73,96 @@ app.prepare().then(async () => {
   io.on('connection', (socket) => {
     console.log('New client connected:', socket.id);
 
-    // Join room
     socket.on('join-room', async (roomCode) => {
       socket.join(roomCode);
       console.log(`👤 User ${socket.id.substring(0, 5)}... joined room ${roomCode}`);
 
-      // Send all existing drawings to the client
+      if (!dbConnected) {
+        socket.emit('error', 'Database not connected');
+        return;
+      }
+
       try {
-        const result = await query(
-          `SELECT user_id, color, stroke_width, points FROM drawings WHERE room_code = $1 ORDER BY created_at ASC`,
-          [roomCode]
-        );
-
-        const drawings = result.rows.map((row) => ({
-          userId: row.user_id,
-          color: row.color,
-          strokeWidth: row.stroke_width,
-          points: row.points,
+        const drawings = await drawingsCollection.find({ roomCode }).sort({ createdAt: 1 }).toArray();
+        const loadedDrawings = drawings.map(d => ({
+            userId: d.userId,
+            color: d.color,
+            strokeWidth: d.strokeWidth,
+            points: d.points,
         }));
-
-        console.log(`📦 Sending ${drawings.length} drawings to ${socket.id.substring(0, 5)}...`);
-        socket.emit('load-drawings', drawings);
+        console.log(`📦 Sending ${loadedDrawings.length} drawings to ${socket.id.substring(0, 5)}...`);
+        socket.emit('load-drawings', loadedDrawings);
       } catch (error) {
         console.error('Failed to load drawings:', error);
+        socket.emit('error', 'Failed to load drawings');
       }
-
-      // Notify others in the room
-      socket.to(roomCode).emit('user-joined', {
-        userId: socket.id,
-        timestamp: new Date(),
-      });
+        socket.to(roomCode).emit('user-joined', { userId: socket.id });
     });
 
-    // Handle drawing events
     socket.on('draw', async (data) => {
-      const { roomCode, line } = data;
+        const { roomCode, line } = data;
+        if (!dbConnected) return;
 
-      console.log(`🎨 Received draw event from ${socket.id.substring(0, 5)}... in room ${roomCode} with ${line.points.length} points`);
+        // Broadcast to other users
+        socket.to(roomCode).emit('draw', { line, userId: socket.id });
 
-      // Broadcast to all users in the room (except sender)
-      socket.to(roomCode).emit('draw', { line, userId: socket.id });
-
-      // Save to database
-      try {
-        console.log(`📝 Data to save: roomCode=${roomCode}, userId=${line.userId}, color=${line.color}, strokeWidth=${line.strokeWidth}, pointsLength=${line.points.length}`);
-
-        // First ensure room exists - use a more robust approach
-        console.log(`🚀 Ensuring room ${roomCode} exists...`);
+        // Save to database
         try {
-          // Try to insert the room
-          await query(
-            `INSERT INTO rooms (code) VALUES ($1)`,
-            [roomCode]
-          );
-          console.log(`✓ Created new room ${roomCode}`);
-        } catch (roomError) {
-          // If room already exists (unique constraint violation), that's fine
-          if (roomError.code !== '23505') {
-            // 23505 = unique_violation - room already exists, which is OK
-            throw roomError;
-          }
-          console.log(`✓ Room ${roomCode} already exists`);
-        }
+            await roomsCollection.updateOne({ code: roomCode }, { $setOnInsert: { code: roomCode, createdAt: new Date() } }, { upsert: true });
 
-        // Now save the drawing (room is guaranteed to exist)
-        console.log(`🖊️ Inserting drawing into drawings table...`);
-        const result = await query(
-          `INSERT INTO drawings (room_code, user_id, color, stroke_width, points)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING id`,
-          [roomCode, line.userId, line.color, line.strokeWidth, JSON.stringify(line.points)]
-        );
-        console.log(`💾 Successfully saved drawing ID ${result.rows[0].id} to database for room ${roomCode}`);
-      } catch (error) {
-        console.error('❌ Failed to save drawing');
-        console.error('Error message:', error.message);
-        console.error('Error code:', error.code);
-        socket.emit('error', `Database error: ${error.message}`);
-      }
+            const drawingDoc = {
+                roomCode,
+                userId: line.userId,
+                color: line.color,
+                strokeWidth: line.strokeWidth,
+                points: line.points,
+                createdAt: new Date(),
+            };
+            const result = await drawingsCollection.insertOne(drawingDoc);
+            console.log(`💾 Successfully saved drawing ID ${result.insertedId} to database for room ${roomCode}`);
+
+        } catch (error) {
+            console.error('❌ Failed to save drawing:', error.message);
+            socket.emit('error', `Database error: ${error.message}`);
+        }
     });
 
-    // Handle undo
     socket.on('undo', async (data) => {
-      const { roomCode, userId } = data;
+        const { roomCode, userId } = data;
+        if (!dbConnected) return;
 
-      try {
-        // Get the last drawing by this user in the room
-        const result = await query(
-          `SELECT id FROM drawings 
-           WHERE room_code = $1 AND user_id = $2 
-           ORDER BY created_at DESC 
-           LIMIT 1`,
-          [roomCode, userId]
-        );
+        try {
+            const lastDrawing = await drawingsCollection.findOneAndDelete(
+                { roomCode, userId },
+                { sort: { createdAt: -1 } }
+            );
 
-        if (result.rows.length > 0) {
-          const drawingId = result.rows[0].id;
-          await query(`DELETE FROM drawings WHERE id = $1`, [drawingId]);
-
-          // Broadcast undo to all users in the room
-          io.to(roomCode).emit('undo', { userId, drawingId });
+            if (lastDrawing.value) {
+                io.to(roomCode).emit('undo', userId);
+                console.log(`↪️ Undid last drawing for user ${userId} in room ${roomCode}`);
+            }
+        } catch (error) {
+            console.error('Failed to undo:', error);
+            socket.emit('error', 'Failed to undo');
         }
-      } catch (error) {
-        console.error('Failed to undo:', error);
-        socket.emit('error', 'Failed to undo');
-      }
     });
 
-    // Handle clear
     socket.on('clear', async (roomCode) => {
-      try {
-        await query(`DELETE FROM drawings WHERE room_code = $1`, [roomCode]);
-        io.to(roomCode).emit('clear');
-      } catch (error) {
-        console.error('Failed to clear canvas:', error);
-        socket.emit('error', 'Failed to clear canvas');
-      }
+        if (!dbConnected) return;
+        try {
+            await drawingsCollection.deleteMany({ roomCode });
+            io.to(roomCode).emit('clear');
+            console.log(`🔥 Cleared canvas for room ${roomCode}`);
+        } catch (error) {
+            console.error('Failed to clear canvas:', error);
+            socket.emit('error', 'Failed to clear canvas');
+        }
     });
 
-    // Leave room
     socket.on('leave-room', (roomCode) => {
       socket.leave(roomCode);
       console.log(`User ${socket.id} left room ${roomCode}`);
-      socket.to(roomCode).emit('user-left', {
-        userId: socket.id,
-        timestamp: new Date(),
-      });
+      socket.to(roomCode).emit('user-left', { userId: socket.id });
     });
 
     socket.on('disconnect', () => {

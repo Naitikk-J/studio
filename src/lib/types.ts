@@ -5,7 +5,6 @@ export type DrawLine = {
   points: Point[];
   color: string;
   strokeWidth: number;
-  isEraser?: boolean;
 };
 
 export type RoomData = {
