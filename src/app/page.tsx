@@ -8,46 +8,16 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { useToast } from "@/hooks/use-toast";
 import { generateRoomCode } from "@/lib/utils";
 
 export default function Home() {
-  console.log("Home component rendering");
-
   const router = useRouter();
-  const { toast } = useToast();
   const [roomCode, setRoomCode] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
 
   const handleCreateRoom = () => {
-    console.log("Button clicked!");
-    try {
-      setIsCreating(true);
-      const newRoomCode = generateRoomCode();
-      console.log("Creating room with code:", newRoomCode);
-
-      // Show toast first
-      toast({
-        title: "Room Created!",
-        description: `Room code: ${newRoomCode}`,
-      });
-
-      // Then navigate
-      setTimeout(() => {
-        router.push(`/room/${newRoomCode}`);
-      }, 100);
-    } catch (error) {
-      console.error("Error creating room:", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to create room. Please try again.",
-      });
-      setIsCreating(false);
-    }
+    const newRoomCode = generateRoomCode();
+    router.push(`/room/${newRoomCode}`);
   };
-
-  console.log("isCreating state:", isCreating);
 
   const handleJoinRoom = (e: FormEvent) => {
     e.preventDefault();
@@ -71,38 +41,13 @@ export default function Home() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <button
-            onClick={(e) => {
-              console.log("Click event fired", e);
-              handleCreateRoom();
-            }}
-            onMouseDown={(e) => {
-              console.log("Mouse down event fired", e);
-            }}
-            disabled={isCreating}
-            type="button"
-            style={{
-              width: "100%",
-              padding: "1.75rem 1rem",
-              fontSize: "1.125rem",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "0.5rem",
-              backgroundColor: "hsl(var(--primary))",
-              color: "hsl(var(--primary-foreground))",
-              border: "none",
-              borderRadius: "0.375rem",
-              cursor: isCreating ? "not-allowed" : "pointer",
-              opacity: isCreating ? 0.5 : 1,
-              fontFamily: "inherit",
-              fontSize: "1.125rem",
-              fontWeight: "500",
-            }}
+          <Button
+            size="lg"
+            className="w-full text-lg py-7"
+            onClick={handleCreateRoom}
           >
-            <Paintbrush style={{ width: "1.25rem", height: "1.25rem", marginRight: "0.5rem" }} />
-            {isCreating ? "Creating..." : "Create a New Room"}
-          </button>
+            <Paintbrush className="mr-2 h-5 w-5" /> Create a New Room
+          </Button>
           
           <div className="flex items-center space-x-4">
             <Separator className="flex-1" />

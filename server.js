@@ -128,7 +128,7 @@ app.prepare().then(async () => {
     // Join room
     socket.on('join-room', async (roomCode) => {
       socket.join(roomCode);
-      console.log(`User ${socket.id} joined room ${roomCode}`);
+      console.log(`👤 User ${socket.id.substring(0, 5)}... joined room ${roomCode}`);
 
       // Send all existing drawings to the client
       try {
@@ -144,6 +144,7 @@ app.prepare().then(async () => {
           points: row.points,
         }));
 
+        console.log(`📦 Sending ${drawings.length} drawings to ${socket.id.substring(0, 5)}...`);
         socket.emit('load-drawings', drawings);
       } catch (error) {
         console.error('Failed to load drawings:', error);
@@ -160,19 +161,47 @@ app.prepare().then(async () => {
     socket.on('draw', async (data) => {
       const { roomCode, line } = data;
 
-      // Broadcast to all users in the room
-      io.to(roomCode).emit('draw', { line, userId: socket.id });
+      console.log(`🎨 Received draw event from ${socket.id.substring(0, 5)}... in room ${roomCode} with ${line.points.length} points`);
+
+      // Broadcast to all users in the room (except sender)
+      socket.to(roomCode).emit('draw', { line, userId: socket.id });
 
       // Save to database
       try {
-        await query(
+        console.log(`📝 Data to save: roomCode=${roomCode}, userId=${line.userId}, color=${line.color}, strokeWidth=${line.strokeWidth}, pointsLength=${line.points.length}`);
+
+        // First ensure room exists - use a more robust approach
+        console.log(`🚀 Ensuring room ${roomCode} exists...`);
+        try {
+          // Try to insert the room
+          await query(
+            `INSERT INTO rooms (code) VALUES ($1)`,
+            [roomCode]
+          );
+          console.log(`✓ Created new room ${roomCode}`);
+        } catch (roomError) {
+          // If room already exists (unique constraint violation), that's fine
+          if (roomError.code !== '23505') {
+            // 23505 = unique_violation - room already exists, which is OK
+            throw roomError;
+          }
+          console.log(`✓ Room ${roomCode} already exists`);
+        }
+
+        // Now save the drawing (room is guaranteed to exist)
+        console.log(`🖊️ Inserting drawing into drawings table...`);
+        const result = await query(
           `INSERT INTO drawings (room_code, user_id, color, stroke_width, points)
-           VALUES ($1, $2, $3, $4, $5)`,
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id`,
           [roomCode, line.userId, line.color, line.strokeWidth, JSON.stringify(line.points)]
         );
+        console.log(`💾 Successfully saved drawing ID ${result.rows[0].id} to database for room ${roomCode}`);
       } catch (error) {
-        console.error('Failed to save drawing:', error);
-        socket.emit('error', 'Failed to save drawing');
+        console.error('❌ Failed to save drawing');
+        console.error('Error message:', error.message);
+        console.error('Error code:', error.code);
+        socket.emit('error', `Database error: ${error.message}`);
       }
     });
 

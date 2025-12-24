@@ -90,19 +90,24 @@ export function useDrawSocket({ roomCode, color, strokeWidth }: UseDrawSocketPro
 
     // Socket event listeners
     socket.on("connect", () => {
-      console.log("Connected to server, joining room:", roomCode);
+      console.log("✅ Connected to socket.io server");
+      console.log("📍 Joining room:", roomCode);
       socket.emit("join-room", roomCode);
     });
 
     socket.on("load-drawings", (drawings: DrawLine[]) => {
-      console.log("Loaded", drawings.length, "drawings");
+      console.log(`📦 Loaded ${drawings.length} existing drawings from database`);
       redrawAll(drawings);
     });
 
     socket.on("draw", (data: { line: DrawLine; userId: string }) => {
+      console.log(`🎨 Received drawing from user ${data.userId.substring(0, 5)}... with ${data.line.points.length} points`);
       const context = canvas.getContext("2d");
       if (context) {
+        console.log(`✅ Drawing ${data.line.points.length} points on canvas with color ${data.line.color}`);
         drawLine(context, data.line);
+      } else {
+        console.error("❌ Failed to get canvas context");
       }
     });
 
@@ -179,6 +184,7 @@ export function useDrawSocket({ roomCode, color, strokeWidth }: UseDrawSocketPro
       if (!isDrawingRef.current || !currentLineRef.current) return;
 
       if (currentLineRef.current.points.length > 1 && socket) {
+        console.log(`✏️ Sending drawing stroke with ${currentLineRef.current.points.length} points to room ${roomCode}`);
         socket.emit("draw", {
           roomCode,
           line: currentLineRef.current,
