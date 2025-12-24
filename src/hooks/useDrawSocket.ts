@@ -17,7 +17,7 @@ function drawLine(
   line: Omit<DrawLine, "userId">
 ) {
   if (!line.points || line.points.length === 0) return;
-  ctx.strokeStyle = line.color;
+  ctx.strokeStyle = line.isEraser ? "#FFFFFF" : line.color;
   ctx.lineWidth = line.strokeWidth;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -29,12 +29,7 @@ function drawLine(
   ctx.stroke();
 }
 
-export function useDrawSocket({
-  roomCode,
-  color,
-  strokeWidth,
-  isEraser,
-}: UseDrawSocketProps) {
+export function useDrawSocket({ roomCode, color, strokeWidth, isEraser }: UseDrawSocketProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
   const currentLineRef = useRef<DrawLine | null>(null);
@@ -47,13 +42,16 @@ export function useDrawSocket({
   const isEraserRef = useRef(isEraser);
 
   useEffect(() => {
-    colorRef.current = isEraser ? "#FFFFFF" : color;
-    isEraserRef.current = isEraser;
-  }, [color, isEraser]);
+    colorRef.current = color;
+  }, [color]);
 
   useEffect(() => {
     strokeWidthRef.current = strokeWidth;
   }, [strokeWidth]);
+
+  useEffect(() => {
+    isEraserRef.current = isEraser;
+  }, [isEraser]);
 
   useEffect(() => {
     if (!userIdRef.current) {
@@ -66,8 +64,7 @@ export function useDrawSocket({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const socketUrl =
-      process.env.NEXT_PUBLIC_API_URL || window.location.origin;
+    const socketUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin;
     const socket = io(socketUrl, {
       reconnection: true,
       reconnectionDelay: 1000,
@@ -98,38 +95,22 @@ export function useDrawSocket({
 
     socket.on("connect", () => {
       console.log("✅ Connected to socket.io server");
-      console.log("📍 Joining room:", roomCode);
       socket.emit("join-room", roomCode);
     });
 
     socket.on("load-drawings", (drawings: DrawLine[]) => {
-      console.log(
-        `📦 Loaded ${drawings.length} existing drawings from database`
-      );
       redrawAll(drawings);
     });
 
     socket.on("draw", (data: { line: DrawLine; userId: string }) => {
-      console.log(
-        `🎨 Received drawing from user ${data.userId.substring(
-          0,
-          5
-        )}... with ${data.line.points.length} points`
-      );
       const context = canvas.getContext("2d");
       if (context) {
-        console.log(
-          `✅ Drawing ${data.line.points.length} points on canvas with color ${data.line.color}`
-        );
         drawLine(context, data.line);
-      } else {
-        console.error("❌ Failed to get canvas context");
       }
     });
 
-    socket.on("undo", (data: { userId: string; drawings: DrawLine[] }) => {
-      console.log(`⏪ Undoing last drawing for user ${data.userId}`);
-      redrawAll(data.drawings);
+    socket.on("undo", () => {
+      socket.emit("join-room", roomCode);
     });
 
     socket.on("clear", () => {
@@ -140,14 +121,6 @@ export function useDrawSocket({
       }
     });
 
-    socket.on("user-joined", (data) => {
-      console.log("User joined:", data.userId);
-    });
-
-    socket.on("user-left", (data) => {
-      console.log("User left:", data.userId);
-    });
-
     socket.on("error", (error) => {
       console.error("Socket error:", error);
       toast({
@@ -155,10 +128,6 @@ export function useDrawSocket({
         title: "Connection Error",
         description: "Failed to sync drawing. Please check your connection.",
       });
-    });
-
-    socket.on("disconnect", () => {
-      console.log("Disconnected from server");
     });
 
     window.addEventListener("resize", setCanvasSize);
@@ -181,6 +150,7 @@ export function useDrawSocket({
         points: [point],
         color: colorRef.current,
         strokeWidth: strokeWidthRef.current,
+        isEraser: isEraserRef.current,
       };
     };
 
@@ -200,9 +170,6 @@ export function useDrawSocket({
       if (!isDrawingRef.current || !currentLineRef.current) return;
 
       if (currentLineRef.current.points.length > 1 && socket) {
-        console.log(
-          `✏️ Sending drawing stroke with ${currentLineRef.current.points.length} points to room ${roomCode}`
-        );
         socket.emit("draw", {
           roomCode,
           line: currentLineRef.current,
@@ -237,7 +204,7 @@ export function useDrawSocket({
 
   const handleClear = () => {
     if (socketRef.current) {
-      socketRef.current.emit("clear", { roomCode });
+      socketRef.current.emit("clear", roomCode);
     }
     toast({
       title: "Canvas Cleared!",
@@ -247,7 +214,6 @@ export function useDrawSocket({
 
   const handleUndo = () => {
     if (socketRef.current && userIdRef.current) {
-      console.log(`⏪ Emitting undo event for user ${userIdRef.current}`);
       socketRef.current.emit("undo", {
         roomCode,
         userId: userIdRef.current,

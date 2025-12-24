@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Home, Share2 } from "lucide-react";
-import { useDraw } from "@/hooks/useDraw";
+import { useDrawSocket } from "@/hooks/useDrawSocket";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/toolbar";
 import {
@@ -22,7 +22,7 @@ export default function DrawingRoom({ roomCode }: DrawingRoomProps) {
   const [color, setColor] = useState("#000000");
   const [strokeWidth, setStrokeWidth] = useState(5);
   const [isEraser, setIsEraser] = useState(false);
-  const { canvasRef, handleClear, handleUndo, handleSync } = useDraw({
+  const { canvasRef, handleClear, handleUndo, handleSync } = useDrawSocket({
     roomCode,
     color,
     strokeWidth,
